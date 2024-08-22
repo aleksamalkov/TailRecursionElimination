@@ -1,9 +1,11 @@
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Value.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
@@ -12,9 +14,37 @@ using namespace llvm;
 
 namespace {
 
-/// Check if a function can be optimized if it contains tail recursion.
+/// Check if a function is safe to be optimized if it contains tail recursion.
+///
+/// A function can't be optimized if its stack frame is not the same size in
+/// every call or if its stack frame may be used by the callee.
 bool isCandidate(const Function &F) {
-  // TODO implement
+  SmallSet<const Value *, 8> allocas;
+
+  for (auto &BB : F) {
+    for (auto &I : BB) {
+      if (auto Alloca = dyn_cast<AllocaInst>(&I)) {
+        if (!BB.isEntryBlock()) {
+          errs() << "  Alloca outside of the entry block!\n";
+          return false;
+        }
+        if (!Alloca->isStaticAlloca()) {
+          errs() << "  Dynamic alloca!\n";
+          return false;
+        }
+        allocas.insert(Alloca);
+      } else {
+        for (size_t i = 0; i != I.getNumOperands(); ++i) {
+          if (allocas.contains(I.getOperand(i)) &&
+              !(I.getOpcode() == Instruction::Load ||
+                (i == 1 && I.getOpcode() == Instruction::Store))) {
+            errs() << "  Caller's stack frame may be used again!\n";
+            return false;
+          }
+        }
+      }
+    }
+  }
   return true;
 }
 
@@ -35,12 +65,14 @@ bool isCandidate(const BasicBlock &BB) {
 
 /// Returns the last recursive call in a basic block, or nullptr.
 CallInst *findLastRecursion(BasicBlock &BB) {
-  CallInst *Recursion = nullptr;
-  for (auto &I : BB)
-    if (auto Call = dyn_cast<CallInst>(&I))
+  BasicBlock::iterator It(BB.getTerminator());
+  while (It != BB.begin()) {
+    --It;
+    if (auto Call = dyn_cast<CallInst>(&*It))
       if (Call->getCalledFunction() == BB.getParent())
-        Recursion = Call;
-  return Recursion;
+        return Call;
+  }
+  return nullptr;
 }
 
 /// Check if a given recursive call is a tail call.
