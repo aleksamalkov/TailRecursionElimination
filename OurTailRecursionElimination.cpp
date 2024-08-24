@@ -55,7 +55,7 @@ bool isCandidate(const Function &F) {
 /// Check if a BasicBlock can contain a tail recursion.
 bool isCandidate(const BasicBlock &BB) {
   // We only look for a tail recursion if the block has either a ret
-  // instruction or an unconditional branch to a block with a ret instruction
+  // instruction or an unconditional branch to a block with a ret instruction.
   const Instruction *Terminator = BB.getTerminator();
   if (isa<ReturnInst>(Terminator))
     return true;
@@ -97,9 +97,12 @@ bool canAccumulate(const Instruction *I, const CallInst *Call) {
 /// store instructions can be there if they are loading and storing the result
 /// of the call. If the return type is not void, ret must return the result of
 /// the function.
-/// This function also finds functions which can become tail recursive by adding
-/// an accumulator.
-bool isTail(CallInst *Call) {
+/// This function can also find functions which can become tail recursive by
+/// adding an accumulator.
+bool isTail(CallInst *Call, bool findAccInst = false) {
+  // TODO: Ako budemo implementirali verziju sa akumulatorom, ova funkcija ce
+  // nekako vracati i AccumulatorInstruction, ali jos nisam odlucio na koji
+  // nacin.
   BasicBlock *CallBB = Call->getParent();
   if (!isCandidate(*CallBB)) {
     return false;
@@ -142,7 +145,8 @@ bool isTail(CallInst *Call) {
         return false;
       }
       ReturnValueLoad = Load;
-    } else if (!AccumulatorInstruction && canAccumulate(&*It, Call)) {
+    } else if (findAccInst && !AccumulatorInstruction &&
+               canAccumulate(&*It, Call)) {
       AccumulatorInstruction = &*It;
       errs() << "  Instruction can be accumulated\n";
     } else {
@@ -198,6 +202,7 @@ CallInst *findTailRecursion(Function &F) {
   return nullptr;
 }
 
+/// Tail recursion elimination pass
 struct TRE : public FunctionPass {
   static char ID; // Pass identification, replacement for typeid
   TRE() : FunctionPass(ID) {}
