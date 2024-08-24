@@ -12,6 +12,9 @@ using namespace llvm;
 
 namespace {
 
+//std::unordered_map<Value *, Value *> ArgsMap;
+std::vector<Value *> ArgsLoc;
+
 /// Check if a function can be optimized if it contains tail recursion.
 bool isCandidate(const Function &F) {
   // TODO implement
@@ -147,6 +150,7 @@ CallInst *findTailRecursion(Function &F) {
         return Call;
       } else {
         errs() << "Not a tail recursion.\n";
+        return nullptr;
       }
     }
   }
@@ -156,15 +160,79 @@ CallInst *findTailRecursion(Function &F) {
   return nullptr;
 }
 
+//adds a label to jump to when call is eliminated
+void addLabel(Function &F){
+
+  BasicBlock &BB = F.getEntryBlock();
+  
+  for(Instruction &I : BB){
+    if(!isa<StoreInst>(&I) && !isa<AllocaInst>(&I)){
+      BasicBlock *newBB = BB.splitBasicBlock(&I, "start");
+      break;
+    }
+  }
+
+}
+
+//removes call and everything after
+void eliminateCall(Function &F){
+
+  std::vector<Instruction *> InstructionsToRemove;
+  auto Call = findTailRecursion(F);
+  BasicBlock *BB = Call->getParent();
+
+  bool remove = false;
+  for(Instruction &I : *BB){
+    
+    if(&I == Call || remove){
+      remove = true;
+      InstructionsToRemove.push_back(&I);
+    }
+  }
+
+  for(Instruction *I : InstructionsToRemove){
+    I->eraseFromParent();
+  }
+}
+
+//places function's argument's location in a map
+void placeArgInMap(Function &F){
+
+  BasicBlock &BB = F.getEntryBlock();
+
+  Instruction *storeI;
+  for(Instruction &I : BB){
+
+    if(isa<StoreInst>(I)){
+     storeI = &I;
+    }
+  }
+
+  while(isa<StoreInst>(storeI)){
+    ArgsLoc.push_back(storeI->getOperand(1)); 
+    storeI = storeI->getNextNode();
+  }
+
+}
+
 struct TRE : public FunctionPass {
   static char ID; // Pass identification, replacement for typeid
   TRE() : FunctionPass(ID) {}
 
   bool runOnFunction(Function &F) override {
-    errs() << "Hello: ";
-    errs().write_escaped(F.getName()) << '\n';
-    findTailRecursion(F);
-    return false;
+    
+          //TODO 
+          //     -insert start label +
+          //     -Create instructions to remove collection +
+          //     -eliminate call and instructions after call +
+          //     -remember function arguments' locations +
+          //     -insert store inst:
+          //        -get call operands 
+          //        -store operands in location of function arguments
+          //     -insert goto start
+      
+    return true;
+    
   }
 };
 } // namespace
