@@ -12,9 +12,6 @@ using namespace llvm;
 
 namespace {
 
-//std::unordered_map<Value *, Value *> ArgsMap;
-std::vector<Value *> ArgsLoc;
-
 /// Check if a function can be optimized if it contains tail recursion.
 bool isCandidate(const Function &F) {
   // TODO implement
@@ -166,6 +163,9 @@ void addLabel(Function &F){
   BasicBlock &BB = F.getEntryBlock();
   
   for(Instruction &I : BB){
+    
+    //TODO better check
+
     if(!isa<StoreInst>(&I) && !isa<AllocaInst>(&I)){
       BasicBlock *newBB = BB.splitBasicBlock(&I, "start");
       break;
@@ -175,10 +175,9 @@ void addLabel(Function &F){
 }
 
 //removes call and everything after
-void eliminateCall(Function &F){
+void eliminateCall(Function &F, CallInst *Call){
 
   std::vector<Instruction *> InstructionsToRemove;
-  auto Call = findTailRecursion(F);
   BasicBlock *BB = Call->getParent();
 
   bool remove = false;
@@ -195,29 +194,67 @@ void eliminateCall(Function &F){
   }
 }
 
-//places function's argument's location in a map
-void placeArgInMap(Function &F){
+//inserts a branch to start before call
+void insertBr(Function &F, CallInst *Call){
 
-  BasicBlock &BB = F.getEntryBlock();
-
-  Instruction *storeI;
-  for(Instruction &I : BB){
-
-    if(isa<StoreInst>(I)){
-     storeI = &I;
+  BasicBlock *startBB = nullptr;
+  for(BasicBlock &BB : F){
+    if(BB.getName() == "start"){
+      startBB = &BB;
     }
   }
 
-  while(isa<StoreInst>(storeI)){
-    ArgsLoc.push_back(storeI->getOperand(1)); 
-    storeI = storeI->getNextNode();
+  if(startBB == nullptr){
+    errs() << "No start Basic BLock found!\n";
+    return;
   }
 
+  //auto *newBr = new BranchInst(startBB, Call); ??????????????????????
+  auto *newBr = BranchInst::Create(startBB);
+  newBr->insertBefore(Call);
 }
 
 struct TRE : public FunctionPass {
+
+  std::vector<Value *> ArgsLoc;
+
   static char ID; // Pass identification, replacement for typeid
   TRE() : FunctionPass(ID) {}
+
+
+  //places function arguments' location in a map
+  void placeArgInMap(Function &F){  
+
+    BasicBlock &BB = F.getEntryBlock(); 
+
+    Instruction *storeI;
+    for(Instruction &I : BB){ 
+
+      if(isa<StoreInst>(I)){
+       storeI = &I;
+       break;
+      }
+    } 
+
+    while(isa<StoreInst>(storeI)){
+      ArgsLoc.push_back(storeI->getOperand(1)); 
+      storeI = storeI->getNextNode();
+    }  
+
+  } 
+
+  //takes values of call arguments and stores them in function arguments' locations
+  void createStoreInst(Function &F, CallInst *Call){  
+
+    
+    for(int i=0; i < Call->getNumOperands(); i++){
+
+      Value *arg = Call->getArgOperand(i);
+      auto *newStore = new StoreInst(arg, ArgsLoc[i], Call); // ?: inserting store before call?
+    }
+  } 
+
+
 
   bool runOnFunction(Function &F) override {
     
@@ -227,11 +264,25 @@ struct TRE : public FunctionPass {
           //     -eliminate call and instructions after call +
           //     -remember function arguments' locations +
           //     -insert store inst:
-          //        -get call operands 
-          //        -store operands in location of function arguments
-          //     -insert goto start
+          //        -get call operands +
+          //        -store operands in location of function arguments +
+          //     -insert goto start +
+
+
+      if(auto *Call = findTailRecursion(F)){
+        
+        placeArgInMap(F);
+        addLabel(F);
+
+        createStoreInst(F, Call);
+        insertBr(F, Call);
+
+        eliminateCall(F, Call);
+
+        return true;
+      }
       
-    return true;
+      else return false;
     
   }
 };
