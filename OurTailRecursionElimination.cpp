@@ -162,16 +162,24 @@ void addLabel(Function &F){
 
   BasicBlock &BB = F.getEntryBlock();
   
+  int i = F.arg_size();
+  errs() << "DBG: num of funcs arg: " << i << "\n";
+
   for(Instruction &I : BB){
     
-    //TODO better check
-
-    if(!isa<StoreInst>(&I) && !isa<AllocaInst>(&I)){
+    if(isa<AllocaInst>(&I) && i!=0){
+      continue;
+    }
+    
+    if(i==0){
       BasicBlock *newBB = BB.splitBasicBlock(&I, "start");
       break;
     }
+    i--;
+
   }
 
+  errs() << "DBG: addLabel comes to an end\n";
 }
 
 //removes call and everything after
@@ -187,11 +195,15 @@ void eliminateCall(Function &F, CallInst *Call){
       remove = true;
       InstructionsToRemove.push_back(&I);
     }
+    
   }
 
   for(Instruction *I : InstructionsToRemove){
+    errs() << "\tDBG: erasing " << I->getOpcodeName() << "\n";
     I->eraseFromParent();
   }
+
+  errs() << "DBG: eliminateCall comes to an end\n";
 }
 
 //inserts a branch to start before call
@@ -205,13 +217,15 @@ void insertBr(Function &F, CallInst *Call){
   }
 
   if(startBB == nullptr){
-    errs() << "No start Basic BLock found!\n";
+    errs() << "No start Basic Block found!\n";
     return;
   }
 
   //auto *newBr = new BranchInst(startBB, Call); ??????????????????????
   auto *newBr = BranchInst::Create(startBB);
   newBr->insertBefore(Call);
+
+  errs() << "DBG: insertBr comes to an end\n";
 }
 
 struct TRE : public FunctionPass {
@@ -236,38 +250,41 @@ struct TRE : public FunctionPass {
       }
     } 
 
+    ArgsLoc.clear();
     while(isa<StoreInst>(storeI)){
+      //errs() << "\tDBG: store from entry block: " << *storeI << "\n";
       ArgsLoc.push_back(storeI->getOperand(1)); 
       storeI = storeI->getNextNode();
     }  
 
+    errs() << "DBG: placeArgInMap comes to an end\n";
   } 
 
   //takes values of call arguments and stores them in function arguments' locations
   void createStoreInst(Function &F, CallInst *Call){  
 
-    
-    for(int i=0; i < Call->getNumOperands(); i++){
+    //errs() << "\t\t DBG: call get num operands" << Call->arg_size() << "\n";
+
+    for(int i=0; i < Call->arg_size(); i++){
 
       Value *arg = Call->getArgOperand(i);
+      //errs() << "\t DBG: in for loop before creating store\n";
       auto *newStore = new StoreInst(arg, ArgsLoc[i], Call); // ?: inserting store before call?
+      
+      if(newStore == nullptr){
+        errs() << "\tno store instruction made\n";
+        return;
+      }
+
+      errs() << "\tDBG: newstore: " << *newStore << "\n";
     }
+
+    errs() << "DBG: createStoreInst comes to an end\n";
   } 
 
 
 
   bool runOnFunction(Function &F) override {
-    
-          //TODO 
-          //     -insert start label +
-          //     -Create instructions to remove collection +
-          //     -eliminate call and instructions after call +
-          //     -remember function arguments' locations +
-          //     -insert store inst:
-          //        -get call operands +
-          //        -store operands in location of function arguments +
-          //     -insert goto start +
-
 
       if(auto *Call = findTailRecursion(F)){
         
