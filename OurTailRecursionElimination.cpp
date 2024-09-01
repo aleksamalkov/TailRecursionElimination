@@ -90,27 +90,40 @@ bool canAccumulate(const Instruction *I, const CallInst *Call) {
           (I->getOperand(0) != Call && I->getOperand(1) == Call));
 }
 
-/// Check if a given recursive call is a tail call.
-///
-/// A call is a tail call if there is nothing between it and the ret
-/// instruction. There can also be an unconditional jump between them. Load and
-/// store instructions can be there if they are loading and storing the result
-/// of the call. If the return type is not void, ret must return the result of
-/// the function.
-/// This function can also find functions which can become tail recursive by
-/// adding an accumulator.
-bool isTail(CallInst *Call, bool findAccInst = false) {
-  // TODO: Ako budemo implementirali verziju sa akumulatorom, ova funkcija ce
-  // nekako vracati i AccumulatorInstruction, ali jos nisam odlucio na koji
-  // nacin.
+/// Finds calls which can be optimized.
+class TailRecursionFinder {
+public:
+  /// Returns the first tail recursive call eligible for optimization, or
+  /// nullptr.
+  ///
+  /// If `findAccInst` is true, finds functions which can be optimized by
+  /// adding a variable as an accumulator.
+  CallInst *find(Function &F, bool findAccInst = false);
+
+  /// Get instruction which should be accumulated, if it exists.
+  Instruction *accumlatorInstruction() { return AccumulatorInstruction; }
+
+private:
+  /// Check if a given recursive call is a tail call.
+  ///
+  /// A call is a tail call if there is nothing between it and the ret
+  /// instruction. There can also be an unconditional jump between them. Load
+  /// and store instructions can be there if they are loading and storing the
+  /// result of the call. If the return type is not void, ret must return the
+  /// result of the function. This function can also find functions which can
+  /// become tail recursive by adding an accumulator.
+  bool isTail(CallInst *Call, bool findAccInst = false);
+
+  Instruction *AccumulatorInstruction{};
+};
+
+bool TailRecursionFinder::isTail(CallInst *Call, bool findAccInst) {
   BasicBlock *CallBB = Call->getParent();
-  if (!isCandidate(*CallBB)) {
-    return false;
-  }
+  assert(isCandidate(CallBB));
 
   const Value *ReturnValueStore{};
   const Value *ReturnValueLoad{};
-  Instruction *AccumulatorInstruction{};
+  assert(!AccumulatorInstruction);
 
   Instruction *Terminator = CallBB->getTerminator();
   BasicBlock::iterator It(Call);
@@ -173,10 +186,11 @@ bool isTail(CallInst *Call, bool findAccInst = false) {
   return false;
 }
 
-/// Returns the first tail recursive call eligible for optimization, or nullptr.
-CallInst *findTailRecursion(Function &F) {
+CallInst *TailRecursionFinder::find(Function &F, bool findAccInst) {
   errs() << "Looking for tail recursion in function: ";
   errs().write_escaped(F.getName()) << '\n';
+
+  AccumulatorInstruction = nullptr;
 
   if (!isCandidate(F)) {
     errs() << "Function can't be optimized.\n";
@@ -187,7 +201,7 @@ CallInst *findTailRecursion(Function &F) {
       continue;
     if (auto Call = findLastRecursion(BB)) {
       errs() << "Found a recursion.\n";
-      if (isTail(Call)) {
+      if (isTail(Call, findAccInst)) {
         errs() << "Found a tail recursion in ";
         errs().write_escaped(F.getName()) << ".\n\n";
         return Call;
@@ -330,8 +344,11 @@ struct TRE : public FunctionPass {
 
 
   bool runOnFunction(Function &F) override {
+      TailRecursionFinder Finder;
 
-      if(auto *Call = findTailRecursion(F)){
+      if(auto *Call = Finder.find(F, true)){
+        // TODO: ako ovo nije nullptr, treba napraviti akumulator
+        Instruction *AccumulatorInstruction = Finder.accumlatorInstruction();
         
         placeArgInMap(F);
         addLabel(F);
