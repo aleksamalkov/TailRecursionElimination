@@ -1,8 +1,10 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Value.h"
@@ -17,9 +19,13 @@ namespace {
 
 /// Check if a function is safe to be optimized if it contains tail recursion.
 ///
-/// A function can't be optimized if its stack frame is not the same size in
-/// every call or if its stack frame may be used by the callee.
+/// A function can't be optimized if it takes a variable number of arguments, if
+/// its stack frame is not the same size in every call or if its stack frame may
+/// be used by the callee.
 bool isCandidate(const Function &F) {
+  if (F.isVarArg())
+    return false;
+
   SmallSet<const Value *, 8> allocas;
 
   for (auto &BB : F) {
@@ -55,8 +61,8 @@ bool isCandidate(const Function &F) {
 
 /// Check if a BasicBlock can contain a tail recursion.
 bool isCandidate(const BasicBlock &BB) {
-  // We only look for a tail recursion if the block has either a ret
-  // instruction or an unconditional branch to a block with a ret instruction.
+  // We only look for a tail recursion if the block has either a ret instruction
+  // or an unconditional branch to a block with a ret instruction.
   const Instruction *Terminator = BB.getTerminator();
   if (isa<ReturnInst>(Terminator))
     return true;
@@ -97,8 +103,8 @@ public:
   /// Returns the first tail recursive call eligible for optimization, or
   /// nullptr.
   ///
-  /// If `findAccInst` is true, finds functions which can be optimized by
-  /// adding a variable as an accumulator.
+  /// If `findAccInst` is true, finds functions which can be optimized by adding
+  /// a variable as an accumulator.
   CallInst *find(Function &F, bool findAccInst = false);
 
   /// Get instruction which should be accumulated, if it exists.
@@ -288,6 +294,60 @@ void insertBr(Function &F, CallInst *Call){
   errs() << "DBG: insertBr comes to an end\n";
 }
 
+/// Adds instructions to allocate and initialize the accumulator variable.
+AllocaInst *createAccumulator(Function &F, Instruction &AccInstr) {
+  auto Terminator = F.getEntryBlock().getTerminator();
+  auto *AccAlloca = new AllocaInst(AccInstr.getType(), 0, "acc", Terminator);
+
+  // Initialize to identity of the accumulator operation.
+  auto *AccOpIdentity =
+      ConstantExpr::getBinOpIdentity(AccInstr.getOpcode(), AccInstr.getType());
+  new StoreInst(AccOpIdentity, AccAlloca, Terminator);
+  return AccAlloca;
+}
+
+/// Insert accumulator operation before the call.
+void addAccOperationOnCall(CallInst &Call, Instruction &AccInstr,
+                           AllocaInst *AccAlloca) {
+  assert(AccAlloca);
+
+  auto *AccLoad =
+      new LoadInst(AccAlloca->getAllocatedType(), AccAlloca, "loadAcc", &Call);
+
+  auto *AccOp = dyn_cast<BinaryOperator>(&AccInstr);
+  assert(AccOp);
+
+  auto *FirstOperand =
+      AccInstr.getOperand(0) == &Call ? AccLoad : AccInstr.getOperand(0);
+  auto *SecondOperand =
+      AccInstr.getOperand(1) == &Call ? AccLoad : AccInstr.getOperand(1);
+  auto *NewAccOp = BinaryOperator::Create(AccOp->getOpcode(), FirstOperand,
+                                          SecondOperand, "accOp", &Call);
+
+  new StoreInst(NewAccOp, AccAlloca, &Call);
+}
+
+/// Insert accumulator operations before the return instructions.
+void AddAccOperationOnRet(Function &F, Instruction &AccInstr,
+                          AllocaInst *AccAlloca) {
+  assert(AccAlloca);
+  for (auto &BB : F) {
+    if (auto *Ret = dyn_cast<ReturnInst>(BB.getTerminator())) {
+      auto *AccLoad = new LoadInst(AccAlloca->getAllocatedType(), AccAlloca,
+                                   "loadAcc", Ret);
+
+      auto *AccOp = dyn_cast<BinaryOperator>(&AccInstr);
+      assert(AccOp);
+
+      auto *NewAccOp = BinaryOperator::Create(AccOp->getOpcode(), AccLoad,
+                                              Ret->getOperand(0), "accOp", Ret);
+      
+      ReturnInst::Create(F.getContext(), NewAccOp, Ret);
+      Ret->eraseFromParent();
+    }
+  }
+}
+
 struct TRE : public FunctionPass {
 
   std::vector<Value *> ArgsLoc;
@@ -373,12 +433,14 @@ struct TRE : public FunctionPass {
     TailRecursionFinder Finder;
 
     if (auto *Call = Finder.find(F, true)) {
-      // TODO: treba izmeniti optimizaciju tako da doda akumulator ako ovo nije
-      // nullptr
-      Instruction *AccumulatorInstruction = Finder.accumlatorInstruction();
-
       if (placeArgInMap(F)) {
         addLabel(F);
+        
+        if (auto *AccInstr = Finder.accumlatorInstruction()) {
+          auto *AccAlloca = createAccumulator(F, *AccInstr);
+          addAccOperationOnCall(*Call, *AccInstr, AccAlloca);
+          AddAccOperationOnRet(F, *AccInstr, AccAlloca);
+        }
 
         createStoreInst(F, Call);
         insertBr(F, Call);
