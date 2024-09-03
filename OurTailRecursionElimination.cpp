@@ -238,7 +238,7 @@ void addLabel(Function &F){
     }
     
     if(i==0){
-      BasicBlock *newBB = BB.splitBasicBlock(&I, "start");
+      BB.splitBasicBlock(&I, "start");
       break;
     }
     i--;
@@ -412,8 +412,7 @@ struct TRE : public FunctionPass {
 
     //errs() << "\t\t DBG: call get num operands" << Call->arg_size() << "\n";
 
-    for(int i=0; i < Call->arg_size(); i++){
-
+    for(size_t i=0; i < Call->arg_size(); i++){
       Value *arg = Call->getArgOperand(i);
       //errs() << "\t DBG: in for loop before creating store\n";
       auto *newStore = new StoreInst(arg, ArgsLoc[i], Call); // ?: inserting store before call?
