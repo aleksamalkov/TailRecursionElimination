@@ -105,7 +105,7 @@ public:
   ///
   /// If `findAccInst` is true, finds functions which can be optimized by adding
   /// a variable as an accumulator.
-  CallInst *find(Function &F, bool findAccInst = false);
+  CallInst *find(Function &F, bool FindAccInstr = false);
 
   /// Get instruction which should be accumulated, if it exists.
   Instruction *accumlatorInstruction() { return AccumulatorInstruction; }
@@ -119,12 +119,12 @@ private:
   /// result of the call. If the return type is not void, ret must return the
   /// result of the function. This function can also find functions which can
   /// become tail recursive by adding an accumulator.
-  bool isTail(CallInst *Call, bool findAccInst = false);
+  bool isTail(CallInst *Call, bool FindAccInstr = false);
 
   Instruction *AccumulatorInstruction{};
 };
 
-bool TailRecursionFinder::isTail(CallInst *Call, bool findAccInst) {
+bool TailRecursionFinder::isTail(CallInst *Call, bool FindAccInstr) {
   BasicBlock *CallBB = Call->getParent();
   assert(isCandidate(CallBB));
 
@@ -165,7 +165,7 @@ bool TailRecursionFinder::isTail(CallInst *Call, bool findAccInst) {
         return false;
       }
       ReturnValueLoad = Load;
-    } else if (findAccInst && !AccumulatorInstruction &&
+    } else if (FindAccInstr && !AccumulatorInstruction &&
                canAccumulate(&*It, Call)) {
       AccumulatorInstruction = &*It;
       errs() << "  Instruction can be accumulated\n";
@@ -193,7 +193,7 @@ bool TailRecursionFinder::isTail(CallInst *Call, bool findAccInst) {
   return false;
 }
 
-CallInst *TailRecursionFinder::find(Function &F, bool findAccInst) {
+CallInst *TailRecursionFinder::find(Function &F, bool FindAccInstr) {
   errs() << "Looking for tail recursion in function: ";
   errs().write_escaped(F.getName()) << '\n';
 
@@ -208,7 +208,7 @@ CallInst *TailRecursionFinder::find(Function &F, bool findAccInst) {
       continue;
     if (auto Call = findLastRecursion(BB)) {
       errs() << "Found a recursion.\n";
-      if (isTail(Call, findAccInst)) {
+      if (isTail(Call, FindAccInstr)) {
         errs() << "Found a tail recursion in ";
         errs().write_escaped(F.getName()) << ".\n\n";
         return Call;
@@ -444,8 +444,13 @@ struct TRE : public FunctionPass {
 
         createStoreInst(F, Call);
         insertBr(F, Call);
-
         eliminateCall(F, Call);
+
+        while (auto *OtherCall = Finder.find(F, false)) {
+          createStoreInst(F, OtherCall);
+          insertBr(F, OtherCall);
+          eliminateCall(F, OtherCall);
+        }
 
         return true;
       }
