@@ -229,8 +229,6 @@ void addLabel(Function &F) {
   BasicBlock &BB = F.getEntryBlock();
 
   int i = F.arg_size();
-  errs() << "DBG: num of funcs arg: " << i << "\n";
-
   for (Instruction &I : BB) {
 
     if (isa<AllocaInst>(&I) && i != 0) {
@@ -243,8 +241,6 @@ void addLabel(Function &F) {
     }
     i--;
   }
-
-  errs() << "DBG: addLabel comes to an end\n";
 }
 
 // removes call and everything after
@@ -263,11 +259,8 @@ void eliminateCall(Function &F, CallInst *Call) {
   }
 
   for (Instruction *I : InstructionsToRemove) {
-    errs() << "\tDBG: erasing " << I->getOpcodeName() << "\n";
     I->eraseFromParent();
   }
-
-  errs() << "DBG: eliminateCall comes to an end\n";
 }
 
 // inserts a branch to start before call
@@ -285,11 +278,8 @@ void insertBr(Function &F, CallInst *Call) {
     return;
   }
 
-  // auto *newBr = new BranchInst(startBB, Call); ??????????????????????
   auto *newBr = BranchInst::Create(startBB);
   newBr->insertBefore(Call);
-
-  errs() << "DBG: insertBr comes to an end\n";
 }
 
 /// Adds instructions to allocate and initialize the accumulator variable.
@@ -388,7 +378,6 @@ struct TRE : public FunctionPass {
       // Check that arguments are not used again.
       if (!ArgIt->hasOneUse())
         return false;
-      // errs() << "\tDBG: store from entry block: " << *storeI << "\n";
       ArgsLoc.push_back(storeI->getOperand(1));
       storeI = storeI->getNextNode();
     }
@@ -400,7 +389,6 @@ struct TRE : public FunctionPass {
       }
     }
 
-    errs() << "DBG: placeArgInMap comes to an end\n";
     return true;
   }
 
@@ -408,23 +396,16 @@ struct TRE : public FunctionPass {
   // locations
   void createStoreInst(Function &F, CallInst *Call) {
 
-    // errs() << "\t\t DBG: call get num operands" << Call->arg_size() << "\n";
-
     for (size_t i = 0; i < Call->arg_size(); i++) {
       Value *arg = Call->getArgOperand(i);
-      // errs() << "\t DBG: in for loop before creating store\n";
       auto *newStore = new StoreInst(arg, ArgsLoc[i],
-                                     Call); // ?: inserting store before call?
+                                     Call); 
 
       if (newStore == nullptr) {
         errs() << "\tno store instruction made\n";
         return;
       }
-
-      errs() << "\tDBG: newstore: " << *newStore << "\n";
     }
-
-    errs() << "DBG: createStoreInst comes to an end\n";
   }
 
   bool runOnFunction(Function &F) override {
