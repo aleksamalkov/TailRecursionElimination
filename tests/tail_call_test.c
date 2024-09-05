@@ -4,9 +4,9 @@
 // Tail recursion with return value
 int gcd(int a, int b)
 {
-    if (b == 0) {
+    if (b == 0)
         return a;
-    }
+
     return gcd(b, a % b);
 }
 
@@ -46,6 +46,7 @@ int factrorial(int n)
 {
     if (n <= 0)
         return 1;
+
     return n * factrorial(n - 1);
 }
 
@@ -54,6 +55,7 @@ int factrorial_acc(int n, int acc)
 {
     if (n <= 0)
         return acc;
+
     return factrorial_acc(n - 1, n * acc);
 }
 
@@ -110,6 +112,15 @@ void quick_sort(int arr[], int start, int end)
     quick_sort(arr, p + 1, end);
 }
 
+// Two recursive calls of which one can be optimized
+int fib(int n)
+{
+    if (n <= 1)
+        return n;
+
+    return fib(n - 1) + fib(n - 2);
+}
+
 int main()
 {
     printf("GCD(12, 18) = %d = %d\n", gcd(12, 18), gcd_iter(12, 18));
@@ -137,6 +148,9 @@ int main()
 
     printf("pos of 6: %d\n", binary_search(arr_sort, 0, n - 1, 6));
     assert(binary_search(arr_sort, 0, n - 1, 6) == -1);
+
+    printf("fib(8) = %d\n", fib(8));
+    assert(fib(8) == 21);
     
     return 0;
 }
