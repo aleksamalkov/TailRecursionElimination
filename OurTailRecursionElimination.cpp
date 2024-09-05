@@ -26,7 +26,7 @@ bool isCandidate(const Function &F) {
   if (F.isVarArg())
     return false;
 
-  SmallSet<const Value *, 8> allocas;
+  SmallSet<const Value *, 8> Allocas;
 
   for (auto &BB : F) {
     for (auto &I : BB) {
@@ -39,14 +39,14 @@ bool isCandidate(const Function &F) {
           errs() << "  Dynamic alloca!\n";
           return false;
         }
-        allocas.insert(Alloca);
+        Allocas.insert(Alloca);
       } else {
         for (size_t i = 0; i != I.getNumOperands(); ++i) {
           // To avoid more complex analysis, we only optimize functions where
           // identifiers representing allocas are not used except in load and
           // store instructions (as a 2nd argument of store), so pointers to
           // caller's stack frame can't exist out of it.
-          if (allocas.contains(I.getOperand(i)) &&
+          if (Allocas.contains(I.getOperand(i)) &&
               !(I.getOpcode() == Instruction::Load ||
                 (i == 1 && I.getOpcode() == Instruction::Store))) {
             errs() << "  Caller's stack frame may be used again!\n";
@@ -200,7 +200,7 @@ CallInst *TailRecursionFinder::find(Function &F, bool FindAccInstr) {
   AccumulatorInstruction = nullptr;
 
   if (!isCandidate(F)) {
-    errs() << "Function can't be optimized.\n";
+    errs() << "Function can't be optimized.\n\n";
     return nullptr;
   }
   for (auto &BB : F) {
